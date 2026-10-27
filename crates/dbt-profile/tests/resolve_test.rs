@@ -237,6 +237,68 @@ my_project:
 }
 
 #[test]
+fn test_rendered_values_only_take_scalar_yaml_types() {
+    let tmp = tempfile::tempdir().unwrap();
+    let profiles_dir = tmp.path();
+
+    let cases = [
+        ("HASH", "#foo"),
+        ("INNER_HASH", "foo#bar"),
+        ("COLON", "a: b"),
+        ("DASH", "- a"),
+        ("LEADING_ZERO", "007"),
+        ("HEX", "0x1F"),
+        ("PORT", "5432"),
+        ("BOOL", "true"),
+        ("NULL", "~"),
+        ("LIST", "[a, b]"),
+    ];
+    let mut outputs = String::new();
+    for (name, value) in cases {
+        unsafe { std::env::set_var(format!("DBT_PROFILE_TEST_RENDER_{name}"), value) };
+        outputs.push_str(&format!(
+            "      {}: \"{{{{ env_var('DBT_PROFILE_TEST_RENDER_{name}') }}}}\"\n",
+            name.to_lowercase()
+        ));
+    }
+
+    write_file(
+        profiles_dir,
+        "profiles.yml",
+        &format!("proj:\n  target: dev\n  outputs:\n    dev:\n      type: snowflake\n{outputs}"),
+    );
+
+    let args = ResolveArgs {
+        profiles_dir: Some(profiles_dir.to_path_buf()),
+        profile: Some("proj".to_owned()),
+        ..Default::default()
+    };
+
+    let result = resolve(&args).unwrap();
+    for key in ["hash", "inner_hash", "colon", "dash", "leading_zero", "hex"] {
+        let expected = cases
+            .iter()
+            .find(|(name, _)| name.to_lowercase() == key)
+            .map(|(_, value)| *value);
+        assert_eq!(result.get_str(key), expected, "{key} should stay a string");
+    }
+    let get = |key: &str| result.credentials.get(key).unwrap();
+    assert_eq!(get("port").as_i64(), Some(5432));
+    assert_eq!(get("bool").as_bool(), Some(true));
+    assert!(
+        result
+            .credentials
+            .get("null")
+            .is_none_or(dbt_yaml::Value::is_null)
+    );
+    assert!(get("list").is_sequence());
+
+    for (name, _) in cases {
+        unsafe { std::env::remove_var(format!("DBT_PROFILE_TEST_RENDER_{name}")) };
+    }
+}
+
+#[test]
 fn test_resolve_with_vars() {
     let tmp = tempfile::tempdir().unwrap();
     let profiles_dir = tmp.path();

@@ -452,13 +452,8 @@ fn render_value_recursive<S: Serialize>(
                 Ok(value.clone())
             } else {
                 match dbt_yaml::from_str::<dbt_yaml::Value>(&resolved) {
-                    Ok(parsed) => match &parsed {
-                        dbt_yaml::Value::String(_, _) => {
-                            Ok(dbt_yaml::Value::String(resolved, span.clone()))
-                        }
-                        _ => Ok(parsed),
-                    },
-                    Err(_) => Ok(dbt_yaml::Value::String(resolved, span.clone())),
+                    Ok(parsed) if keep_parsed(&resolved, &parsed) => Ok(parsed),
+                    _ => Ok(dbt_yaml::Value::String(resolved, span.clone())),
                 }
             }
         }
@@ -483,6 +478,21 @@ fn render_value_recursive<S: Serialize>(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Whether a rendered string should take the type YAML gives it. Only bools,
+/// numbers that read back the same, explicit nulls and flow collections
+/// qualify, so values like `#foo` (a YAML comment), `a: b` or `007` stay strings.
+fn keep_parsed(rendered: &str, parsed: &dbt_yaml::Value) -> bool {
+    let text = rendered.trim();
+    match parsed {
+        dbt_yaml::Value::Bool(_, _) => true,
+        dbt_yaml::Value::Number(n, _) => n.to_string() == text,
+        dbt_yaml::Value::Null(_) => matches!(text, "" | "~" | "null" | "Null" | "NULL"),
+        dbt_yaml::Value::Sequence(_, _) => text.starts_with('['),
+        dbt_yaml::Value::Mapping(_, _) => text.starts_with('{'),
+        _ => false,
+    }
+}
 
 fn lookup_env(overrides: &BTreeMap<String, String>, name: &str) -> Option<String> {
     lookup_env_override(overrides, name)

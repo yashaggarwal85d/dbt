@@ -1,0 +1,7 @@
+kind: Fixes
+body: Keep env_var() values in profiles.yml as strings when YAML would read them as a comment or mapping
+time: 2026-10-27T12:22:08.054099392Z
+custom:
+    author: yashaggarwal85d
+    issue: "16857"
+    project: dbt-core
